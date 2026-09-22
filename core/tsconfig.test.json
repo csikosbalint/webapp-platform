@@ -1,0 +1,25 @@
+{
+  /*
+   * Tests compile to a throwaway directory so they never reach dist/ and
+   * therefore never reach the published tarball. Declarations are off: nothing
+   * consumes types from the test build.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./.test-build",
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": [
+    "src/index.ts",
+    "src/domain/**/*.ts",
+    "src/app/**/*.ts",
+    "src/ports/**/*.ts",
+    "src/tests/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    ".test-build"
+  ]
+}

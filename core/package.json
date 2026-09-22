@@ -1,13 +1,44 @@
 {
-  "name": "core",
+  "name": "@csikosbalint/webapp-platform-core",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "description": "Framework-agnostic Clean Architecture core: Entities, Use Cases, and boundaries.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ports": {
+      "types": "./dist/ports/index.d.ts",
+      "default": "./dist/ports/index.js"
+    }
   },
-  "keywords": [],
-  "author": "",
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/csikosbalint/webapp-platform.git",
+    "directory": "core"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "clean": "rm -rf dist .test-build",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js",
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test"
+  },
+  "keywords": [
+    "hexagonal",
+    "ports-and-adapters",
+    "clean-architecture"
+  ],
+  "author": "csikosbalint",
   "license": "ISC",
   "devEngines": {
     "packageManager": {
@@ -17,5 +48,8 @@
     }
   },
   "packageManager": "pnpm@12.4.2",
-  "type": "module"
+  "devDependencies": {
+    "@types/node": "22.18.1",
+    "typescript": "5.9.3"
+  }
 }
