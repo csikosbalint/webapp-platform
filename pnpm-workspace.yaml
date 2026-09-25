@@ -1,0 +1,9 @@
+packages:
+  - core
+  - plugins/ui
+
+allowBuilds:
+  sharp: false
+  unrs-resolver: false
+minimumReleaseAgeExclude:
+  - '@csikosbalint/webapp-platform-core@1.0.0'

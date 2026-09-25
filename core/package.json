@@ -29,6 +29,7 @@
   "scripts": {
     "clean": "rm -rf dist .test-build",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js",
     "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test"
@@ -43,11 +44,11 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "12.4.2",
+      "version": "12.6.0",
       "onFail": "download"
     }
   },
-  "packageManager": "pnpm@12.4.2",
+  "packageManager": "pnpm@12.6.0",
   "devDependencies": {
     "@types/node": "22.18.1",
     "typescript": "5.9.3"

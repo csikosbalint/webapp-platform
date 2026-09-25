@@ -33,6 +33,23 @@ export type CalculateRightTriangle = (
 ) => RightTriangle;
 
 /**
+ * Solves a right triangle and remembers the result through the use case's
+ * output boundary.
+ *
+ * Same inputs and same answer as {@link CalculateRightTriangle}; the
+ * difference is the side effect, which is why it is async. The caller does not
+ * learn *where* the result was written — that is the adapter's business.
+ *
+ * @param legA - the first leg; must be finite and greater than zero
+ * @param legB - the second leg; must be finite and greater than zero
+ * @returns the solved triangle, once the result has been recorded
+ */
+export type SolveAndRecordRightTriangle = (
+  legA: number,
+  legB: number,
+) => Promise<RightTriangle>;
+
+/**
  * The geometry namespace of the math port.
  *
  * Grouping by subject keeps the port readable as it grows: callers reach an
@@ -41,4 +58,5 @@ export type CalculateRightTriangle = (
  */
 export interface GeometryOperations {
   readonly calculateRightTriangle: CalculateRightTriangle;
+  readonly solveAndRecordRightTriangle: SolveAndRecordRightTriangle;
 }
