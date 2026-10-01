@@ -1,118 +1,108 @@
-# `plugins/` — the outer circles
+# `plugins/` — interface adapters and delivery mechanisms
 
-Rules for every plugin. Read
-[`CLEAN-ARCHITECTURE.md`](../CLEAN-ARCHITECTURE.md) first for the Dependency Rule
-and the circle map; inner-circle rules are in [`core/CORE.md`](../core/CORE.md).
+Read [`CLEAN-ARCHITECTURE.md`](../CLEAN-ARCHITECTURE.md) first. A plugin is an
+outer delivery mechanism. It lets an actor reach the application and supplies
+infrastructure behind application-owned boundaries.
 
-Principles that hold for any plugin live here. Anything specific to one plugin
-lives in that plugin's own doc:
+A plugin decides **how** the application is delivered. It does not decide what
+the application means.
 
-| Plugin | Doc | Delivers |
-|---|---|---|
-| `plugins/ui` | [`ui/UI.md`](./ui/UI.md) | Next.js App Router web UI |
+## Interface adapters
 
-A plugin is a **delivery mechanism**. It decides how the application is reached
-and what technology satisfies its needs. It decides nothing about what the
-application means.
+The adapter ring translates between delivery-shaped data and application-owned
+boundary data. Its two complementary roles are controller and presenter.
 
-## What a plugin is for
+### Controller
 
-Two jobs, both at the edge:
+A controller:
 
-| Job | Circle | Direction |
-|---|---|---|
-| Translate framework input into an input-boundary call, and results into output | Interface Adapters | inward |
-| Implement an output boundary the core declared | Frameworks & Drivers | outward |
+- receives raw input from a view or transport;
+- validates and coerces delivery-specific representations;
+- creates an input-boundary request;
+- invokes the application through that boundary;
+- may initiate request-lifecycle tracking needed by the adapter.
 
-Everything else in a plugin — routing, styling, bundling, deployment — is
-plumbing around those two.
+A controller does not mutate entities directly, format display output, or know
+the use-case implementation.
 
----
+### Presenter
 
-## Interface Adapters — `plugins/*/app/` and equivalents
+A presenter:
 
-Components, route handlers, presenters, and controllers that translate between
-framework-shaped input/output and the core's boundaries.
+- receives a response or terminal event through an output boundary;
+- associates it with the relevant request when correlation is required;
+- converts application data into a display-ready view model;
+- owns presentation decisions such as formatting, ordering, labels, and
+  visibility.
 
-### MUST
+A presenter does not invoke business rules or expose raw boundary data to the
+view merely because that data is convenient to render.
 
-- Call the published package surface:
-  `@csikosbalint/webapp-platform-core` and
-  `@csikosbalint/webapp-platform-core/ports`.
-- Translate transport or UI input into input-boundary types on the way in, and
-  core results into view models on the way out.
-- Validate and coerce untrusted input here, before it reaches a boundary. The
-  core's own validation is a backstop, not the first line.
-- Keep framework conventions and framework imports at this edge.
-- Keep composition and wiring at the edge, not pushed inward.
+Controller and presenter are siblings. The view sends intent to the controller
+and reads the presenter's view model; it does not pass business output from one
+to the other itself.
 
-### MUST NOT
+## Views
 
-- Import `core/src`, `core/dist`, or any path inside the package. The `exports`
-  map blocks it; do not work around it with a relative path, an alias, or a
-  `paths` entry.
-- Contain a business rule. A calculation that appears inside a component is a
-  rule that escaped the core.
-- Reimplement something a boundary already offers because calling the boundary
-  felt awkward. Fix the boundary in `core/` instead.
-- Hold state that belongs to the domain. UI state is fine; business state is
-  not.
+A view renders a view model and captures user interaction. It may own ephemeral
+local state whose meaning is purely visual or input-oriented, such as field
+text, focus, or whether a panel is open.
 
----
+A view must not:
 
-## Frameworks & Drivers — `plugins/*/`
+- call entity rules;
+- translate application responses;
+- subscribe directly to infrastructure;
+- publish application events;
+- know which concrete interactor or driver is in use.
 
-The outermost ring: frameworks, UI, CSS, browser APIs, filesystem, network,
-process, deployment configuration.
+## Frameworks and drivers
 
-### MUST
+Framework code and drivers occupy the outermost ring. Drivers implement output
+boundaries for databases, clocks, message transports, remote services, or
+other I/O.
 
-- Keep framework-specific code inside the plugin.
-- Implement output boundaries here, never inside `core/`. A driver is the only
-  place allowed to know about `node:fs`, a database client, an HTTP client, or a
-  vendor SDK.
-- Conform to the contract as declared. If a driver cannot satisfy a boundary,
-  that is a conversation about the boundary, not a reason to widen it quietly.
-- Construct drivers and pass them to the core's factories at the edge, where
-  configuration is already available.
-- Read configuration and secrets here. Never pass a whole config object into
-  the core; pass the one value or the one driver it asked for.
+A driver owns technical delivery behavior: connections, serialization,
+subscriptions, retries, dead-letter handling, and observability. The core owns
+the contract and application vocabulary carried over it.
 
-### MUST NOT
+A distributed message driver may deliver outcomes produced in another process.
+The presenter still consumes the application event model, while the transport
+handles how that event crossed the boundary.
 
-- Move framework types into `core/`, in any direction, for any reason.
-- Export a driver from a place the core could import.
-- Let a framework upgrade turn into a change to an entity rule. If it does, a
-  dependency was pointing the wrong way before the upgrade.
+## Composition at the edge
 
----
+The application host selects concrete drivers and gives them to Main. Main
+assembles the use cases; adapters receive only the public input capabilities
+and boundary contracts they need.
 
-## Adding a plugin
+The dependency-injection mechanism is an assembly detail. Controllers,
+presenters, use cases, entities, and drivers do not use it as a service locator.
 
-1. Create `plugins/<name>/` with its own `package.json` and lockfile. Plugins
-   are independent workspaces, not a monorepo build graph.
-2. Depend on `@csikosbalint/webapp-platform-core` at a pinned version.
-3. Write the adapters that translate your transport into input-boundary calls.
-4. Write drivers for any output boundary the core requires, and wire them at the
-   edge.
-5. Add a `<NAME>.md` in the plugin and link it from the table at the top of this
-   file.
+## State ownership
 
-A second plugin must be able to reuse `core/` untouched. If adding one forces a
-change inside `core/`, the change is either a genuine missing capability — which
-belongs in a boundary — or a leak of the first plugin's assumptions.
+| State | Owner in a plugin |
+|---|---|
+| Raw input and purely visual interaction | View |
+| Pending request identities and presentation lifecycle | Adapter |
+| Display-ready values and feed ordering | Presenter / view model |
+| Transport connection and delivery bookkeeping | Driver |
+| Business invariants and workflow policy | Not the plugin; the core |
 
-## Checking your work
+A pending flag is presentation lifecycle state when it means “the controller
+sent a request and the presenter has not received its terminal outcome.” It is
+not domain state.
 
-From the repository root:
+## Replaceability test
 
-```sh
-# Must print nothing: no plugin reaches inside the package.
-grep -rn "webapp-platform-core/\(src\|dist\)\|core/src\|core/dist" plugins/*/app plugins/*/*.ts* 2>/dev/null
+A plugin is correctly separated when:
 
-# Must print nothing: no relative escape out of a plugin.
-grep -rn "from ['\"]\.\./\.\./\.\./core" plugins/ --include='*.ts' --include='*.tsx'
-```
+- another view can reuse the same application boundaries;
+- another transport can replace a driver without changing a use case;
+- formatting and layout can change without changing core policy;
+- deleting the plugin leaves the core meaningful and testable;
+- adding a second plugin does not require adapting the core to the first
+  plugin's framework conventions.
 
-Then run the plugin's own lint and build. For `plugins/ui` those are documented
-in [`ui/UI.md`](./ui/UI.md).
+Plugin-specific guidance belongs in the plugin's own document. For the web UI,
+see [`ui/UI.md`](./ui/UI.md).

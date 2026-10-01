@@ -1,120 +1,111 @@
-# `plugins/ui` — Next.js web UI
+# Web UI — Clean Architecture roles
 
-Specifics for this plugin. The rules every plugin obeys are in
-[`PLUGINS.md`](../PLUGINS.md); the core's rules are in
-[`core/CORE.md`](../../core/CORE.md). Not repeated here.
+This plugin is a web delivery mechanism. The system-wide Dependency Rule is in
+[`CLEAN-ARCHITECTURE.md`](../../CLEAN-ARCHITECTURE.md); generic plugin roles are
+in [`PLUGINS.md`](../PLUGINS.md).
 
-This plugin is the web delivery mechanism: an App Router front end that calls the
-core through its published boundaries.
+This document describes concepts only. Framework APIs, concrete modules, type
+names, and wiring syntax belong in code rather than architecture guidance.
 
-## Stack
+## Role map
 
-| Piece | Version | Notes |
-|---|---|---|
-| Next.js | 16.3.5 | App Router. Pinned exactly |
-| React | 19.2.8 | Pinned exactly |
-| Tailwind CSS | v4 | Via `@tailwindcss/postcss`; no `tailwind.config` file |
-| ESLint | 9 | Flat config, `eslint-config-next` core-web-vitals + typescript |
-| Core | `@csikosbalint/webapp-platform-core` | Local `workspace:*` dependency during development |
-| pnpm | 12.6.0 | One workspace rooted at the repository directory |
+| UI concern | Clean Architecture role |
+|---|---|
+| Rendering and raw form values | View |
+| Translating user intent into an application request | Controller |
+| Translating terminal application output into display data | Presenter |
+| Crossing the browser/server or process boundary | Transport adapter |
+| Delivering application events | Output driver |
+| Constructing the application graph | Main / composition root |
 
-`next.config.ts` is intentionally empty. Add an option only with a reason in a
-comment.
+The UI adapter exposes two faces to the view:
 
-## This Next.js is not the one you remember
+- **controller** — commands the view may send;
+- **presenter** — the view model the view may render.
 
-The pinned version has breaking changes against most training data — APIs,
-conventions, and file structure may all differ. Read the relevant guide in
-`node_modules/next/dist/docs/` before writing Next-specific code, and heed
-deprecation notices.
+The view does not receive the application interactor, event bus, or raw response
+model.
 
-Two things already visible in the starter that surprise people:
+## Interaction
 
-- `layout.tsx` types its props as `LayoutProps<"/">`, a generated global — not a
-  hand-written `{ children: React.ReactNode }`.
-- `AGENTS.md` carries a generated `nextjs-agent-rules` block, written and
-  re-added by `next dev`. Leave it in place; deleting it from a diff only
-  re-creates the uncommitted change.
+The conceptual request path is:
 
-## Layout
-
-| Path | Circle | Holds |
-|---|---|---|
-| `app/layout.tsx` | Frameworks & Drivers | Root shell, fonts, metadata |
-| `app/page.tsx` | Interface Adapters | Route-level adapter. Currently the starter page, no core call yet |
-| `app/globals.css` | Frameworks & Drivers | Tailwind entry and theme tokens |
-| `eslint.config.mjs`, `next.config.ts`, `postcss` | Frameworks & Drivers | Build and lint plumbing |
-
-Server Components are the default. Reach for `"use client"` only when a
-component needs browser state or an event handler, and keep the boundary as
-small as possible — the core call belongs on the server side of it.
-
-## Calling the core
-
-```ts
-import { createMath } from "@csikosbalint/webapp-platform-core";
+```text
+View → Controller → Input Boundary → Interactor → Entities
 ```
 
-Never a deeper path. The package's `exports` map allows only the root and
-`/ports`; a relative import into `../../core` is a violation even when it
-resolves.
+The conceptual result path is:
 
-`createMath` requires an outbound driver, so this plugin owns that decision. A
-browser-facing route cannot use the core's `/tmp` file driver — that one is a
-test driver inside `core/src/tests/` and does not ship. When a route needs to
-record results, write a driver here, in this plugin, and construct it in the
-route or a server module.
-
-Keep the calculation out of the component: the adapter turns form or route input
-into a boundary call, awaits it, and renders the returned data.
-
-## Commands
-
-Run these from the repository root after the one-time workspace install:
-
-```sh
-pnpm install
-pnpm --filter ui lint
-pnpm --filter ui build
-pnpm --filter ui dev       # next dev — run this yourself, never from an agent
-pnpm --filter ui start     # next start, after a build
+```text
+Interactor → Output Boundary → Transport → Presenter → View Model → View
 ```
 
-There is no test setup in this plugin yet. Add one before the first non-trivial
-adapter, not after.
+The controller translates input; it does not calculate the answer. The
+presenter formats and arranges output; it does not repeat business rules.
 
-## Consuming the local core
+When browser and application run in different processes, they cannot rely on a
+shared in-memory publisher. A transport adapter carries the request inward and
+a driver carries the terminal output outward. A local bridge may emulate that
+transport in a prototype, but the bridge remains adapter plumbing rather than
+application policy.
 
-This repository is a pnpm workspace. The UI depends on the local core package
-through `workspace:*`, while the core's package exports remain unchanged and
-continue to resolve from `dist/`.
+## Request lifecycle
 
-After the one-time install at the repository root, run the core watcher in one
-terminal:
+Each submitted operation may carry a correlation identifier. The adapter keeps
+the request pending after the controller sends it. The presenter clears that
+pending state only when it receives a matching success or failure outcome.
 
-```sh
-pnpm --filter @csikosbalint/webapp-platform-core dev
-```
+This gives `pending` a precise meaning:
 
-Run the UI in another terminal:
+> A request has entered the application, but its correlated terminal output has
+> not yet reached the presenter.
 
-```sh
-pnpm --filter ui dev
-```
+Unrelated events may appear in an activity feed without changing the current
+request's result or pending state.
 
-The watcher refreshes the compiled public surface as core source changes, so no
-publishing, package retrieval, `pnpm link`, or temporary dependency edits are
-needed. Import only from `@csikosbalint/webapp-platform-core` or its `/ports`
-entry point; never bypass the exports map with a relative import or a deep path.
+## State ownership
 
-The workspace must be installed from the repository root. A standalone install
-of `plugins/ui` is not supported while its dependency is `workspace:*`; release
-or deployment workflows that need an independently installable UI should use a
-published core version in a separate deployment manifest.
+| State | Owner |
+|---|---|
+| Raw field text | View |
+| Pending correlation identifiers | Adapter |
+| Application response/event data awaiting presentation | Presenter adapter |
+| Formatted result, error text, activity-feed lines | View model |
+| Business rules and invariants | Core |
+| Subscription and delivery mechanics | Driver |
 
-## Housekeeping
+Local input state stays local because it has no meaning outside the view. The
+adapter owns only state shared by controller and presenter. Neither kind of UI
+state belongs in an entity.
 
-- `.next/` is generated. Never edit it, never commit it.
-- `pnpm-lock.yaml` changes only through pnpm commands.
-- `README.md` in this folder is create-next-app boilerplate. Architecture
-  guidance belongs in this file.
+## Presentation rules
+
+The presenter decides how application output is represented, including:
+
+- number and date formatting;
+- error wording suitable for the view;
+- ordering and limiting an activity feed;
+- which result belongs to the active request;
+- whether the view is idle, pending, successful, or failed.
+
+The view decides layout and interaction affordances. It renders the presenter's
+model without deriving application meaning from it.
+
+## Boundary rules
+
+- The UI depends only on the core's published application boundary.
+- Delivery and framework values are translated before crossing inward.
+- Boundary response data is translated before reaching the view.
+- The UI never imports inner implementation modules.
+- The core never imports the UI or its framework.
+- A concrete message transport may change without changing the interactor or
+  presenter contract.
+
+## Testing the split
+
+A view-level test should drive user intent and observe rendered output. It may
+replace the transport seam while retaining the real controller, presenter, and
+view.
+
+Separate contract tests should prove that drivers satisfy their output
+boundaries. Business-rule tests remain in the core and require no UI framework.

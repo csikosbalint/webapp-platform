@@ -1,55 +1,46 @@
 # webapp-platform
 
-Baseline for flexible web applications: a framework-agnostic Clean Architecture
-core plus framework adapters ("plugins").
+A framework-independent application core surrounded by replaceable delivery
+plugins, following Uncle Bob's Clean Architecture and the Ports and Adapters
+style.
 
-## Layout
+## Architecture
 
-| Path | Contents |
-|---|---|
-| `core/` | `@csikosbalint/webapp-platform-core` — Entities, Use Cases, Boundaries |
-| `plugins/ui/` | Next.js adapter |
+The core owns enterprise rules, application use cases, and the boundaries that
+define how actors and infrastructure interact with them. Plugins own views,
+controllers, presenters, transports, and concrete drivers.
+
+```text
+View → Controller → Input Boundary → Interactor → Entities
+                                      │
+                                      └→ Output Boundary → Presenter → View Model → View
+```
+
+Source dependencies point toward policy even when runtime control returns
+outward through a presenter or driver. Main assembles the concrete graph and is
+kept separate from business decisions.
 
 ## Documentation
 
-Principles are separated from concrete code, and the core is separated from the
-plugins.
-
-Each package doc lives with the package it governs.
-
-```text
-CLEAN-ARCHITECTURE.md
-├── core/CORE.md ────────── core/src/_example.math.README.md
-│                      └── core/src/_example.result-log.README.md
-└── plugins/PLUGINS.md ─── plugins/ui/UI.md
-```
-
-| Doc | Holds |
+| Document | Purpose |
 |---|---|
-| [`CLEAN-ARCHITECTURE.md`](./CLEAN-ARCHITECTURE.md) | The Dependency Rule, the circle map, where code goes. Start here |
-| [`core/CORE.md`](./core/CORE.md) | Rules for the inner circles: Entities, Use Cases, Boundaries, Composition Root |
-| [`plugins/PLUGINS.md`](./plugins/PLUGINS.md) | Rules for every plugin: Interface Adapters, Frameworks & Drivers |
-| [`plugins/ui/UI.md`](./plugins/ui/UI.md) | The Next.js plugin: stack, layout, how it calls the core |
-| [`core/src/_example.math.README.md`](./core/src/_example.math.README.md) | Worked input-boundary example |
-| [`core/src/_example.result-log.README.md`](./core/src/_example.result-log.README.md) | Worked output-boundary example |
+| [`CLEAN-ARCHITECTURE.md`](./CLEAN-ARCHITECTURE.md) | System-wide concepts, dependency direction, and the interaction model |
+| [`core/CORE.md`](./core/CORE.md) | Entities, interactors, application boundaries, and Main |
+| [`plugins/PLUGINS.md`](./plugins/PLUGINS.md) | Interface adapters, views, and drivers |
+| [`plugins/ui/UI.md`](./plugins/ui/UI.md) | The web UI's controller/presenter split and state ownership |
 
-Keep the split. A rule spanning both packages goes in `CLEAN-ARCHITECTURE.md`, a
-package rule in `core/CORE.md` or `plugins/PLUGINS.md`, a single-plugin detail in
-that plugin's doc, and anything naming a concrete type or driver in an example
-guide.
+Architecture documents describe roles and constraints rather than concrete API
+walkthroughs. Code and tests are the authority for implementation details.
 
 ## Local development
 
-The repository is a pnpm workspace. The UI consumes the local core package via
-`workspace:*`; no publishing or package retrieval is needed. Install once from
-this directory:
+The repository is a pnpm workspace. Install once from the repository root:
 
 ```sh
 pnpm install
 ```
 
-Because the core's public exports point to compiled `dist/` files, keep its
-watcher running in one terminal and the UI in another:
+Keep the core compiler and UI development server running separately:
 
 ```sh
 pnpm --filter @csikosbalint/webapp-platform-core dev
