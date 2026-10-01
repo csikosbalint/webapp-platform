@@ -49,6 +49,9 @@
     }
   },
   "packageManager": "pnpm@12.6.0",
+  "dependencies": {
+    "awilix": "13.0.5"
+  },
   "devDependencies": {
     "@types/node": "22.18.1",
     "typescript": "5.9.3"

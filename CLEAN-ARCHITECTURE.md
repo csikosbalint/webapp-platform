@@ -1,79 +1,120 @@
-# Clean Architecture in this repo
+# Clean Architecture in this repository
 
-Entry point for **principles**. What holds everywhere lives here; per-package
-rules are split out, and concrete code is walked through separately again.
+This document defines architectural roles and dependency direction. It is
+intentionally about concepts, not concrete APIs, filenames, framework versions,
+or wiring syntax.
 
-| Doc | Covers |
+| Document | Scope |
 |---|---|
-| this file | The Dependency Rule, the circle map, where code goes |
-| [`core/CORE.md`](./core/CORE.md) | The inner circles — `core/`: Entities, Use Cases, Boundaries, Composition Root |
-| [`plugins/PLUGINS.md`](./plugins/PLUGINS.md) | The outer circles — `plugins/`: Interface Adapters, Frameworks & Drivers |
+| this document | The system-wide dependency rule and interaction model |
+| [`core/CORE.md`](./core/CORE.md) | Entities, use cases, boundaries, and Main |
+| [`plugins/PLUGINS.md`](./plugins/PLUGINS.md) | Controllers, presenters, views, and drivers |
+| [`plugins/ui/UI.md`](./plugins/ui/UI.md) | How a web UI applies those outer-circle roles |
 
-No example code is described in any of the three. Walkthroughs are linked from
-the package doc that owns them.
+## Reading the sketch
+
+The supplied sketch is directionally consistent with Uncle Bob's Clean
+Architecture, with four important clarifications:
+
+1. The controller and presenter are sibling **interface adapters**. The view
+   sends user intent to the controller and reads a view model produced by the
+   presenter.
+2. “Port” is not one middle object. The inward path crosses an **input
+   boundary**; the outward path crosses an **output boundary**.
+3. The interactor coordinates the use case and invokes entities. A response
+   model leaves the interactor through an output boundary before the presenter
+   converts it into a view model.
+4. Main, or the composition root, is omitted from the sketch. Main wires the
+   concrete graph but does not participate in the business interaction.
+
+The resulting control flow is:
+
+```text
+User → View → Controller → Input Boundary → Interactor → Entities
+                                               │
+                                               └→ Output Boundary → Presenter → View Model → View
+```
+
+For event-driven output, the outward half may cross a message transport:
+
+```text
+Interactor → Message Output Boundary → Driver/Transport → Presenter → View Model
+```
+
+A correlation identifier lets the presenter associate a terminal output with
+one request when several operations share the transport.
+
+These arrows show **runtime control flow**. They do not show source-code
+dependency direction.
 
 ## The Dependency Rule
 
-> **Source-code dependencies point inward only. Nothing in an inner circle
-> knows the name of anything in an outer circle.**
+> Source-code dependencies point toward policy. Nothing in an inner circle
+> knows the name of anything in an outer circle.
+
+Conceptually:
 
 ```text
-Frameworks & Drivers → Interface Adapters → Input Boundaries → Use Cases → Entities
-                                                         └──────────────→ Entities
+Frameworks & Drivers → Interface Adapters → Application Boundaries / Use Cases → Entities
 ```
 
-Calls may flow outward. *Imports* may not. When an inner circle needs something
-from the outside, it declares an interface (an output boundary) and the outer
-circle conforms to it. This is dependency inversion, and it is the only
-mechanism this repo uses to cross a seam.
+The details follow from that rule:
 
-The packages exist to make the rule mechanical rather than aspirational.
-`core/` is published and cannot import a plugin; a plugin consumes the package
-through its `exports` map and cannot reach a private folder. The boundary is
-enforced by module resolution, not by discipline alone.
+- Entities know only enterprise rules.
+- Interactors depend on entities and application-owned boundary abstractions.
+- Controllers depend on input boundaries, not on use-case implementations.
+- Presenters depend on output/response boundaries, not on entities or drivers.
+- Drivers implement output boundaries owned by the application.
+- Main may know every concrete component it must assemble, but no use case may
+  know Main or the dependency-injection mechanism.
 
-## Circle map
+Calls may travel outward through an output boundary. Imports still point toward
+the boundary owned by the inner policy. That inversion is what permits a driver
+or framework to be replaced without changing a use case or entity.
 
-| Path | Uncle Bob term | Depends on | Rules in |
-|---|---|---|---|
-| `core/src/domain/` | Entities | nothing | [`core/CORE.md`](./core/CORE.md) |
-| `core/src/app/` | Use Cases | Entities, boundary types | [`core/CORE.md`](./core/CORE.md) |
-| `core/src/ports/inbound/` | Input Boundaries | its own type vocabulary | [`core/CORE.md`](./core/CORE.md) |
-| `core/src/ports/outbound/` | Output Boundaries | domain types only | [`core/CORE.md`](./core/CORE.md) |
-| `core/src/index.ts` | Composition Root (Main) | everything inside `core/` | [`core/CORE.md`](./core/CORE.md) |
-| `core/src/tests/` | Frameworks & Drivers | the public boundaries | [`core/CORE.md`](./core/CORE.md) |
-| `plugins/*/app/` | Interface Adapters | the published package surface | [`plugins/PLUGINS.md`](./plugins/PLUGINS.md) |
-| `plugins/*/` | Frameworks & Drivers | the published package surface | [`plugins/PLUGINS.md`](./plugins/PLUGINS.md) |
+## Roles
 
-The physical directory names stay `domain`, `app`, and `ports` because they are
-established package paths. Do not rename directories to make the filesystem
-mirror the terminology.
+| Role | Responsibility | Must not do |
+|---|---|---|
+| View | Render a view model and retain ephemeral interaction input | Invoke business rules or format domain output |
+| Controller | Translate user/transport input into an input-boundary request | Mutate entities directly or prepare display output |
+| Input boundary | Define what an actor may ask the application to do | Mention a UI, route, framework, or transport |
+| Interactor / use case | Coordinate one actor goal and application policy | Know a controller, presenter, driver, or container |
+| Entity | Enforce enterprise rules independent of delivery and infrastructure | Perform I/O or depend on a boundary |
+| Output boundary | Define output or an external capability needed by a use case | Expose framework or vendor details |
+| Presenter | Convert a response/event model into a view model | Re-run business rules or drive the use case |
+| Driver | Realize I/O or transport behind an output boundary | Define application policy |
+| Main / composition root | Construct and connect the concrete object graph | Contain business decisions |
 
-## Deciding where code goes
+A public facade may expose assembled input capabilities for convenience. The
+facade belongs to Main; it is not itself the input or output port contract.
 
-Ask, in order:
+## State ownership
 
-1. Is it framework, transport, UI, or I/O? → a plugin. See
-   [`plugins/PLUGINS.md`](./plugins/PLUGINS.md).
-2. Does it need to talk to anything outside the process? → `core/src/app/`,
-   behind an output boundary in `core/src/ports/outbound/`.
-3. Does it describe *what the outside can call* or *what the core needs from
-   the outside*? → `core/src/ports/`.
-4. Does it coordinate several operations, or map between boundary shapes and
-   domain types? → `core/src/app/`.
-5. Is it a rule or calculation that is true regardless of how the program is
-   invoked? → `core/src/domain/`.
+State belongs with the policy that gives it meaning:
 
-Steps 2 through 5 are detailed in [`core/CORE.md`](./core/CORE.md).
+| State | Owner |
+|---|---|
+| Raw field values, focus, expanded panels | View |
+| Pending requests, correlation tracking, display-ready output | Interface adapter / presenter model |
+| Workflow decisions and application invariants | Use case |
+| Enterprise identity and lifecycle | Entity |
+| Connections, subscriptions, retries, delivery state | Driver |
 
-## The test that matters
+A controller does not “mutate core state.” It translates an actor's intent and
+invokes an input boundary. A presenter does not own business state; it owns the
+representation shown by the view.
 
-A framework is a delivery mechanism, not the application architecture. Two
-questions catch most violations:
+## Architectural tests
 
-- Could you delete `plugins/` entirely and still have `core/` compile, test, and
-  make sense? It must be yes.
-- Could you swap the UI framework without touching an entity rule? It must be
-  yes.
+The design is healthy when all of these remain true:
 
-If either answer is no, a dependency is pointing the wrong way.
+- The core can compile and execute without any delivery plugin.
+- A delivery framework can be replaced without changing an entity or use case.
+- A transport can be replaced by another driver behind the same output
+  boundary.
+- The view can change formatting and layout without changing application rules.
+- Use cases receive collaborators through explicit construction and never
+  resolve them from a container.
+- Boundary data is not mistaken for an entity, and a view model is not passed
+  back into the core.

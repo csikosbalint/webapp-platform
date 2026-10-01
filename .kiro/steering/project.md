@@ -1,82 +1,75 @@
 # webapp-platform — project rules
 
-Always applies. Baseline for flexible web applications: a framework-agnostic
-Clean Architecture core plus framework adapters ("plugins").
+Always applies. The repository uses Uncle Bob's Clean Architecture with a
+framework-independent core and replaceable delivery plugins.
 
-## Layout
+## Architectural baseline
 
-| Path | Role |
-|---|---|
-| `core/` | Published package `@csikosbalint/webapp-platform-core` — Entities, Use Cases, Boundaries |
-| `core/src/index.ts` | Composition root; the core's entire public surface |
-| `core/src/domain/` | Entities: pure enterprise rules, no I/O |
-| `core/src/app/` | Use Cases: application orchestration |
-| `core/src/ports/inbound/` | Input Boundaries (contracts) |
-| `core/src/ports/outbound/` | Outbound Boundaries (stores, clocks, notifiers) |
-| `core/src/tests/` | Test drivers, run via `node --test` |
-| `plugins/ui/` | Next.js adapter (Interface Adapters + Frameworks & Drivers) |
+The conceptual authority is
+[`CLEAN-ARCHITECTURE.md`](../../CLEAN-ARCHITECTURE.md). Package-specific concepts
+live in [`core/CORE.md`](../../core/CORE.md),
+[`plugins/PLUGINS.md`](../../plugins/PLUGINS.md), and
+[`plugins/ui/UI.md`](../../plugins/ui/UI.md).
+
+Architecture documentation stays conceptual. Do not add concrete type names,
+API walkthroughs, framework versions, or file-by-file implementation narratives
+to those documents. Read the code and tests for implementation details.
 
 ## Dependency Rule (non-negotiable)
 
-Source dependencies point inward only:
+Source dependencies point toward policy:
 
 ```text
-Frameworks & Drivers → Interface Adapters → Input Boundaries → Use Cases → Entities
+Frameworks & Drivers → Interface Adapters → Application Boundaries / Use Cases → Entities
 ```
 
-- `core/` must never import from `plugins/`, Next.js, React, or any framework.
-- `domain/` must never import from `app/` or `ports/`.
-- Plugins import only `@csikosbalint/webapp-platform-core` and
-  `@csikosbalint/webapp-platform-core/ports`. Never deep-import `dist/…`,
-  `app/`, or `domain/` — the `exports` map enforces this; don't work around it.
-- Dependencies reach Use Cases as parameters of factories in the composition
-  root, not as imports deeper in the tree.
-- Don't rename `domain/`, `app/`, `ports/` to match architectural terminology.
+- `core/` never imports from a plugin, React, Next.js, or another delivery
+  framework.
+- Domain policy never imports application orchestration or a boundary.
+- Use cases depend on domain policy and application-owned boundary abstractions,
+  never on a controller, presenter, driver, framework, or container.
+- Nested inbound and outbound port modules declare boundary vocabulary and
+  contracts.
+- Main is an outer assembly role even when it is physically distributed with
+  the core package. It is the only role that may know the DI container and
+  concrete registrations.
+- A public composition facade is not itself a port contract. “Port” means an
+  input or output boundary owned by the application.
+- Plugins consume only the package's published entry points; never deep-import
+  generated output, application implementations, or domain modules.
+- Controllers translate input and invoke an input boundary. They do not mutate
+  core state directly.
+- Presenters consume response/event models and create view models. They do not
+  run business rules.
+- Raw form state remains in the view. Request lifecycle and display-ready state
+  belong to the interface adapter.
 
-## Documentation split
+## Physical layout
 
-The architecture is specified in [CLEAN-ARCHITECTURE.md](../../CLEAN-ARCHITECTURE.md).
-Read it before editing any layer — it is the authority on the Dependency Rule,
-and this steering file only summarizes it.
-
-Docs are split twice: principles apart from concrete code, and each package doc
-living with the package it governs. Every doc links to the next; there are no
-per-folder guides.
-
-```text
-CLEAN-ARCHITECTURE.md
-├── core/CORE.md ────────── core/src/_example.math.README.md
-│                      └── core/src/_example.result-log.README.md
-└── plugins/PLUGINS.md ─── plugins/ui/UI.md
-```
-
-| File | Holds |
+| Path | Architectural responsibility |
 |---|---|
-| [CLEAN-ARCHITECTURE.md](../../CLEAN-ARCHITECTURE.md) | Cross-package concept: Dependency Rule, circle map, where code goes |
-| [core/CORE.md](../../core/CORE.md) | Inner-circle rules: Entities, Use Cases, Boundaries, Composition Root, test drivers |
-| [plugins/PLUGINS.md](../../plugins/PLUGINS.md) | Rules for any plugin: Interface Adapters, Frameworks & Drivers |
-| [plugins/ui/UI.md](../../plugins/ui/UI.md) | The Next.js plugin: stack, layout, how it calls the core |
-| [core/src/_example.math.README.md](../../core/src/_example.math.README.md) | The `MathPort` input-boundary example, end to end |
-| [core/src/_example.result-log.README.md](../../core/src/_example.result-log.README.md) | The `ResultLog` output-boundary example, end to end |
+| `core/src/domain/` | Entity and domain policy |
+| `core/src/app/` | Interactors / use cases |
+| `core/src/ports/inbound/` | Input-boundary vocabulary |
+| `core/src/ports/outbound/` | Output-boundary vocabulary |
+| `core/src/ports/index.ts` | Published assembly facade and boundary barrel |
+| `core/src/index.ts` | Root public vocabulary barrel |
+| `core/src/tests/` | Test controllers and drivers |
+| `plugins/ui/` | Web view, interface adapters, transport adapters, and drivers |
 
-Before editing, read `CLEAN-ARCHITECTURE.md` plus the doc for the package you
-are touching, and the example guide if you are changing that example.
-
-When writing docs, place content by scope: a rule spanning both packages goes in
-`CLEAN-ARCHITECTURE.md`, a package rule in `core/CORE.md` or
-`plugins/PLUGINS.md`, a single-plugin detail in that plugin's doc, and anything
-naming a concrete type, file, or driver in an example guide. Do not restate a
-rule in a lower doc — link to it.
+The assembly facade is the deliberate exception to a contracts-only ports
+folder: it may import inward to construct the graph. Do not let that exception
+spread into the boundary modules themselves.
 
 ## TypeScript in `core/`
 
-- Node ESM: relative imports keep the `.js` extension in source
-  (`./app/geometry.js`), even though the file is `.ts`.
+- Node ESM relative imports keep the `.js` extension in TypeScript source.
 - `verbatimModuleSyntax` is on: use `import type` / `export type` for types.
-- Strict mode plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`.
-  Don't loosen `tsconfig.json` to make code compile; fix the code.
-- No `any`, no non-null `!` assertions, no `@ts-ignore` without a comment
-  explaining why.
+- Strict mode, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes` stay
+  enabled.
+- Do not use `any`, non-null assertions, or unexplained `@ts-ignore` comments.
+- Keep entity and use-case implementations private unless an external adapter
+  genuinely needs a contract.
 
 ## Commands
 
@@ -88,27 +81,25 @@ Package manager is **pnpm** — never npm or yarn.
 | Typecheck core | `pnpm typecheck` | `core/` |
 | Test core | `pnpm test` | `core/` |
 | Lint UI | `pnpm lint` | `plugins/ui/` |
+| Test UI | `pnpm test` | `plugins/ui/` |
 | Build UI | `pnpm build` | `plugins/ui/` |
 
-Run `pnpm typecheck && pnpm test` in `core/` after changing core, and
-`pnpm lint` in `plugins/ui/` after changing the UI. Never start `next dev`
-yourself — ask the user to run it.
+Run `pnpm typecheck && pnpm test` in `core/` after changing core. Run
+`pnpm lint && pnpm test` in `plugins/ui/` after changing the UI. Never start the
+UI development server yourself; ask the user to run it.
 
 ## Generated output — never edit by hand
 
-`core/dist/`, `core/.test-build/`, `plugins/ui/.next/`, `node_modules/`,
-`pnpm-lock.yaml` (change via pnpm commands only).
+`core/dist/`, `core/.test-build/`, `plugins/ui/.next/`, `node_modules/`, and the
+workspace lockfile are generated. Change the lockfile only through pnpm.
 
-## Next.js in `plugins/ui/`
+## Framework guidance
 
-This repo pins a Next.js version whose APIs may differ from training data.
-Consult `plugins/ui/node_modules/next/dist/docs/` before writing Next-specific
-code. The `nextjs-agent-rules` block in `plugins/ui/AGENTS.md` is generated by
-`next dev`; leave it in place.
+The UI pins a framework version whose APIs may differ from training data. Read
+the locally installed framework documentation before writing framework-specific
+code. Leave generated agent-guidance blocks in place.
 
 ## Versioning
 
-`core/package.json` version changes are deliberate release decisions. Bump it
-only when asked, and keep the pinned
-`@csikosbalint/webapp-platform-core` dependency in `plugins/ui/package.json`
-in sync when you do.
+Core package version changes are deliberate release decisions. Bump the version
+only when asked, and keep plugin dependency declarations in sync.
