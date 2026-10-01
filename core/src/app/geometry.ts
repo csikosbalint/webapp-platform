@@ -1,88 +1,161 @@
 /**
- * Use Case layer: geometry behavior composed from Entity operations.
+ * Use Case layer: the `Geometry` class.
  *
- * Depends inward on `domain/` and on port *types* only — the inbound contract
- * it implements and the outbound contract it requires. The dependency on the
- * port types is what makes this an implementation of a declared contract
- * rather than a free-floating function.
+ * Takes its dependencies through the constructor and knows nothing about how
+ * they were built — no container, no service locator, no framework import.
+ * The composition root (`Port`, in `ports/index.ts`) registers it with awilix,
+ * which constructs it by injecting the declared {@link GeometryDependencies}:
+ *
+ *   const { geometry } = new Port({ eventBus, source });
+ *   await geometry.triangle.calculate(3, 4, { type: Type.Triangle.RIGHT });
+ *
+ * Rules: `/CLEAN-ARCHITECTURE.md`.
  */
 
-import { add, divide, multiply } from "../domain/basic.operations.js";
 import type {
-    CalculateRightTriangle,
-    GeometryOperations,
-    SolveAndRecordRightTriangle,
+    Calculate,
+    CalculateOptions,
+    Geometry as GeometryShape,
+    MathOperations,
+    RightTriangle,
+    TriangleCalculator,
 } from "../ports/inbound/math.types.js";
-import type { ResultLog } from "../ports/outbound/result.log.port.js";
+import { Triangle } from "../ports/inbound/math.types.js";
+import type { EventBus, EventMetadata } from "../ports/outbound/event.bus.port.js";
+import { Topic } from "../ports/outbound/event.bus.port.js";
+
+/** Identifies this operation in events. */
+const OPERATION = "geometry.triangle.calculate";
 
 /**
- * Derives the hypotenuse, area and perimeter of a right triangle from its two
- * legs.
- *
- * Every arithmetic step goes through the domain primitives; `Math.sqrt` is the
- * one operation the domain does not provide, so it is used directly.
- *
- * Pure: same input, same output, no side effect. It needs no dependencies, so
- * it lives outside the factory below.
- *
- * @throws RangeError when either leg is not a finite number greater than zero.
+ * What `Geometry` needs, injected by the composition root. The property names
+ * are the container's registration names.
  */
-const calculateRightTriangle: CalculateRightTriangle = (legA, legB) => {
+export interface GeometryDependencies {
+    /** The arithmetic the solvers run on. */
+    readonly math: MathOperations;
+    /** The bus every operation announces its outcome on. */
+    readonly eventBus: EventBus;
+    /** Stamped onto every event this instance publishes, when present. */
+    readonly source?: string | undefined;
+}
+
+/** The geometry use case. Its public surface is just `triangle`. */
+export class Geometry implements GeometryShape {
+    readonly triangle: TriangleCalculator;
+
+    constructor({ math, eventBus, source }: GeometryDependencies) {
+        const metadata: EventMetadata = source === undefined ? {} : { source };
+        this.triangle = { calculate: makeCalculate(math, eventBus, metadata) };
+    }
+}
+
+/**
+ * Builds `triangle.calculate`.
+ *
+ * Invariant: every call publishes exactly one terminal event, including calls
+ * whose options are missing or malformed — options are read INSIDE the `try`
+ * so a bad call is reported as `FAILED` rather than escaping unannounced.
+ *
+ * Failure precedence:
+ * - a solver error is rethrown to the caller after `FAILED` is published;
+ * - if publishing `FAILED` itself fails, the ORIGINAL solver error is still
+ *   what the caller receives — a delivery problem while reporting a failure
+ *   must not mask the failure;
+ * - if publishing `COMPLETED` fails (a transport error; subscriber errors never
+ *   reach the publisher, see `EventBus`), the call rejects with that error and
+ *   no `FAILED` follows — the calculation did not fail.
+ */
+function makeCalculate(
+    math: MathOperations,
+    eventBus: EventBus,
+    instanceMetadata: EventMetadata,
+): Calculate {
+    return async (legA, legB, options) => {
+        const inputs = [legA, legB] as const;
+        let metadata = instanceMetadata;
+        let announced = false;
+
+        try {
+            const { type, correlationId } = readOptions(options);
+            if (correlationId !== undefined) {
+                metadata = { ...instanceMetadata, correlationId };
+            }
+
+            const triangle = solve(math, legA, legB, type);
+
+            announced = true;
+            await eventBus.publish(Topic.Geometry.Triangle.COMPLETED, {
+                ...metadata,
+                result: triangle,
+            });
+
+            return triangle;
+        } catch (cause) {
+            if (!announced) {
+                try {
+                    await eventBus.publish(Topic.Geometry.Triangle.FAILED, {
+                        ...metadata,
+                        operation: OPERATION,
+                        inputs,
+                        reason: cause instanceof Error ? cause.message : String(cause),
+                    });
+                } catch {
+                    // Deliberately dropped: the original `cause` takes precedence.
+                }
+            }
+
+            throw cause;
+        }
+    };
+}
+
+/**
+ * Validates `options` at runtime. The static type already requires it; this
+ * guards untyped callers so they get a `RangeError` and a `FAILED` event.
+ */
+function readOptions(options: CalculateOptions | undefined): CalculateOptions {
+    if (typeof options !== "object" || options === null) {
+        throw new RangeError("options must be an object with a triangle type");
+    }
+    return options;
+}
+
+/** Dispatches on type; only `RIGHT` is implemented. */
+function solve(
+    math: MathOperations,
+    legA: number,
+    legB: number,
+    type: Triangle,
+): RightTriangle {
+    switch (type) {
+        case Triangle.RIGHT:
+            return solveRight(math, legA, legB);
+        default:
+            throw new RangeError(`unsupported triangle type: ${String(type)}`);
+    }
+}
+
+/**
+ * Solves a right triangle from its two legs using the injected `math`
+ * service. `Math.sqrt` is the one op the domain does not provide.
+ */
+function solveRight(math: MathOperations, legA: number, legB: number): RightTriangle {
     assertLeg(legA, "legA");
     assertLeg(legB, "legB");
 
-    const hypotenuse = Math.sqrt(add(multiply(legA, legA), multiply(legB, legB)));
-    const area = divide(multiply(legA, legB), 2);
-    const perimeter = add(add(legA, legB), hypotenuse);
+    const hypotenuse = Math.sqrt(
+        math.add(math.multiply(legA, legA), math.multiply(legB, legB)),
+    );
+    const area = math.divide(math.multiply(legA, legB), 2);
+    const perimeter = math.add(math.add(legA, legB), hypotenuse);
 
     return { legA, legB, hypotenuse, area, perimeter };
-};
+}
 
 /** Rejects legs that cannot describe a triangle side. */
 function assertLeg(value: number, name: string): void {
     if (!Number.isFinite(value) || value <= 0) {
         throw new RangeError(`${name} must be a finite number greater than 0`);
     }
-}
-
-/**
- * Builds the geometry namespace.
- *
- * This is where the outbound port earns its keep. The use case asks for a
- * `ResultLog` as a parameter and never learns which implementation it got: a
- * file under `/tmp`, an in-memory fake in a test, a row in a database. The
- * arrow of dependency points inward because the interface is declared in
- * `ports/outbound/`, owned by this layer, and the driver conforms to it.
- *
- * Note that `calculateRightTriangle` — the Entity-level arithmetic — is reused
- * untouched. Entities stay pure; only the use case is allowed the side effect.
- *
- * @param resultLog - where to record the most recent answer
- */
-export function createGeometry(resultLog: ResultLog): GeometryOperations {
-    const solveAndRecordRightTriangle: SolveAndRecordRightTriangle = async (
-        legA,
-        legB,
-    ) => {
-        const triangle = calculateRightTriangle(legA, legB);
-
-        await resultLog.recordLast({
-            operation: "geometry.calculateRightTriangle",
-            inputs: [legA, legB],
-            result: triangle.hypotenuse,
-        });
-
-        return triangle;
-    };
-
-    /*
-     * Annotated so the compiler checks the namespace against the port contract
-     * here rather than only at the composition root.
-     */
-    const geometry: GeometryOperations = {
-        calculateRightTriangle,
-        solveAndRecordRightTriangle,
-    };
-
-    return geometry;
 }

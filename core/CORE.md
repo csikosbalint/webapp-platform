@@ -260,15 +260,55 @@ boundaries or exercise pure entities directly. They are not business rules.
 - No `any`, no non-null `!` assertions, no `@ts-ignore` without a comment
   explaining why.
 
+### `tsconfig.json` — the settings that make the rules above mechanical
+
+These are not free choices. `.js`-suffixed relative imports and `import type`
+only compile under one module system; pick anything else and the rules fight the
+compiler. The authoritative values live in `core/tsconfig.json`; the ones that
+matter and why:
+
+| Option | Value | Why it is not negotiable |
+|---|---|---|
+| `module` | `nodenext` | The only setting under which `.js`-suffixed relative imports resolve. |
+| `moduleResolution` | `nodenext` | Must match `module`; enables the package `exports` map that keeps plugins honest. |
+| `target` / `lib` | `ES2022` | Modern Node ESM; no down-level emit hiding language globals. |
+| `verbatimModuleSyntax` | `true` | Forces the `import type` / `export type` discipline. |
+| `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes` | `true` | The strictness the domain rules assume. |
+| `isolatedModules` | `true` | Each file must stand alone — no cross-file type-only leaks the emitter would drop. |
+| `rootDir` / `outDir` | `./src` / `./dist` | Only `dist/` ships; see the published surface above. |
+| `declaration` + `declarationMap` | `true` | Plugins consume `.d.ts` from `dist/`, so types must emit. |
+
+Do not add `paths`, `baseUrl`, or a bundler `moduleResolution` to work around an
+import — those are how the `exports` map gets bypassed.
+
 ## Commands
 
 From this directory:
 
 ```sh
-pnpm typecheck    # tsc --noEmit
-pnpm test         # compiles to .test-build/, runs node --test
-pnpm build        # emits dist/
+pnpm typecheck    # tsc -p tsconfig.json --noEmit
+pnpm test         # tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js
+pnpm build        # tsc -p tsconfig.json  → emits dist/
 ```
+
+Three tsconfigs, three jobs — the split is what makes "test drivers never ship"
+mechanical rather than a matter of discipline:
+
+| File | Emits | Includes | Role |
+|---|---|---|---|
+| `tsconfig.json` | `dist/` | `index.ts`, `domain/`, `app/`, `ports/` (**not** `tests/`) | Build + typecheck. Tests are excluded so a test driver can never reach `dist/`. |
+| `tsconfig.test.json` | `.test-build/` | the above **plus** `tests/` | `extends` the base; only `outDir` and declarations change. The throwaway build the test runner executes. |
+
+Two invocation details the runner is fussy about, so state them rather than let
+them be rediscovered:
+
+- **`pnpm test` compiles first, then runs the emitted JS.** `node --test` runs
+  the `.test-build/` output, never the `.ts` source. There is no ts-node/loader
+  step.
+- **The test target is a glob, not a bare directory.** Use
+  `node --test .test-build/tests/*.test.js`. A bare directory
+  (`node --test .test-build/tests`) is treated as a module to load on current
+  Node and fails with `MODULE_NOT_FOUND`.
 
 ## Checking your work
 
@@ -301,6 +341,6 @@ guide per example:
 | Guide | Shows |
 |---|---|
 | [`src/_example.math.README.md`](./src/_example.math.README.md) | An input boundary end to end: entities, a use case, a contract, the composition root |
-| [`src/_example.result-log.README.md`](./src/_example.result-log.README.md) | An output boundary end to end: declaring a need, injecting it, and three drivers |
+| [`src/_example.events.README.md`](./src/_example.events.README.md) | Pub/sub at the Use Case layer: the `EventBus` boundary, why it carries both publish and subscribe, and why Entities stay out of it |
 
 When an example changes, update its guide — not this file.

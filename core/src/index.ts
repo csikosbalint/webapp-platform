@@ -1,37 +1,19 @@
 /**
- * Composition root: the only place that binds implementations to ports.
+ * Composition root: the core's root public surface.
  *
- * This is the core's entire public surface. Adapters in `plugins/` import the
- * factory and the port types from here and never reach into `app/` or
- * `domain/` — the `exports` map in package.json enforces that at resolution
+ * The use-case entry point — the `Port.Geometry` class — is served from the
+ * `./ports` subpath (`@csikosbalint/webapp-platform-core/ports`), alongside the
+ * port contracts. This root entry re-exports the shared vocabulary (the
+ * `Type` kind tree, the `Topic` topic tree, and the port types) so a
+ * consumer that only needs those does not reach into `./ports`.
+ *
+ * Adapters in `plugins/` import from here and from `./ports`, never from `app/`
+ * or `domain/` — the `exports` map in package.json enforces that at resolution
  * time.
  */
 
-import { createGeometry } from "./app/geometry.js";
-import type { MathPort } from "./ports/inbound/math.port.js";
-import type { ResultLog } from "./ports/outbound/result.log.port.js";
+export { Type } from "./ports/inbound/math.types.js";
+export type { RightTriangle } from "./ports/inbound/math.types.js";
 
-export type { MathPort } from "./ports/inbound/math.port.js";
-export type {
-  CalculateRightTriangle,
-  GeometryOperations,
-  RightTriangle,
-  SolveAndRecordRightTriangle,
-} from "./ports/inbound/math.types.js";
-export type {
-  CalculationRecord,
-  ResultLog,
-} from "./ports/outbound/result.log.port.js";
-
-/**
- * Builds the math inbound port.
- *
- * The outbound dependency arrives here as a parameter, which is the whole
- * point of an output boundary: the caller — a route handler, a CLI, a test —
- * chooses the implementation, and nothing inside `core/` knows what it is.
- *
- * @param resultLog - driver that persists the most recent calculation
- */
-export function createMath(resultLog: ResultLog): MathPort {
-  return { geometry: createGeometry(resultLog) };
-}
+export { Topic } from "./ports/outbound/event.bus.port.js";
+export type { EventBus } from "./ports/outbound/event.bus.port.js";
